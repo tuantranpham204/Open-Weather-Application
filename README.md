@@ -1,1 +1,0 @@
-# Open-Weather-Application
