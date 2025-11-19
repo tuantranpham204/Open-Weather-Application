@@ -19,6 +19,40 @@ class RegisterView(APIView):
             user = serializer.save()
             return Response({"message": f"User '{user.username}' đã tạo thành công."}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+#Search
+class SearchCityView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    
+    def get(self, request, *args, **kwargs):
+        city = request.query_params.get('city', None)
+        if not city:
+            return Response({"error": "Need city name."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        geo_params = {'name': city, 'count': 10, 'language': 'vi', 'format': 'json'}
+        
+        try:
+            geo_response = requests.get(GEOCODING_API_URL, params=geo_params)
+            geo_response.raise_for_status()
+            geo_data = geo_response.json()
+
+            if not geo_data.get('results'):
+                return Response({"error": f"No result for'{city}'."}, status=status.HTTP_404_NOT_FOUND)
+            
+            locations = []
+            for res in geo_data['results']:
+                locations.append({
+                    'id': res['id'],
+                    'name': res.get('name', 'Unknow name'),
+                    'country': res.get('country', ''),
+                    'admin1': res.get('admin1', ''),
+                    'latitude': res['latitude'],
+                    'longitude': res['longitude'],
+                })
+            return Response(locations, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": f"Lỗi server: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 #Chatbot
 class WeatherChatbotView(APIView):
     permission_classes = [AllowAny]
