@@ -53,6 +53,90 @@ class SearchCityView(APIView):
 
         except Exception as e:
             return Response({"error": f"Lỗi server: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# API weather 
+class WeatherDataView(APIView):
+    permission_classes = [AllowAny] 
+    authentication_classes = []
+    
+    def get(self, request, *args, **kwargs):
+        lat = request.query_params.get('lat')
+        lon = request.query_params.get('lon')
+        if not lat or not lon:
+            return Response({"error": "'lat' and 'lon' are required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            weather_params = {
+                'latitude': lat,
+                'longitude': lon,
+                # 1. Real time 
+                'current': 'temperature_2m,relative_humidity_2m,precipitation,weathercode,windspeed_10m,winddirection_10m,pressure_msl',
+                # 2. Forecast 7 days
+                'daily': 'weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum',
+                # 3. Forecast 24h 
+                'hourly': 'temperature_2m,weathercode,precipitation',
+                'timezone': 'auto'
+            }
+            
+            response = requests.get(WEATHER_API_URL, params=weather_params)
+            response.raise_for_status()
+            data = response.json()
+
+            # --- CURRENT ---
+            current = data.get('current', {})
+            
+            # --- DAILY --- 
+            daily = data.get('daily', {})
+            forecast_list = []
+            if 'time' in daily:
+                for i in range(len(daily['time'])):
+                    forecast_list.append({
+                        'date': daily['time'][i],
+                        'max_temp': daily['temperature_2m_max'][i],
+                        'min_temp': daily['temperature_2m_min'][i],
+                        'weathercode': daily['weathercode'][i],
+                        'precipitation': daily['precipitation_sum'][i],
+                        'sunrise': daily['sunrise'][i],
+                        'sunset': daily['sunset'][i]
+                    })
+
+            # --- HOURLY ---
+            hourly = data.get('hourly', {})
+            hourly_list = []
+            if 'time' in hourly:
+                for i in range(len(hourly['time'])):
+                    # API return "2024-11-18T14:00"
+                    full_time = hourly['time'][i]
+                    # Extract hour 
+                    time_str = full_time.split('T')[1] if 'T' in full_time else full_time
+                    
+                    hourly_list.append({
+                        'full_time': full_time, 
+                        'time': time_str,      
+                        'temp': hourly['temperature_2m'][i],
+                        'code': hourly['weathercode'][i],
+                        'rain': hourly['precipitation'][i]
+                    })
+
+            # Return data
+            weather_data = {
+                'current': {
+                    'temperature': current.get('temperature_2m'),
+                    'humidity': current.get('relative_humidity_2m'),
+                    'precipitation': current.get('precipitation'),
+                    'weathercode': current.get('weathercode'),
+                    'windspeed': current.get('windspeed_10m'),
+                    'winddirection': current.get('winddirection_10m'),
+                    'pressure': current.get('pressure_msl'),
+                },
+                'forecast': forecast_list, 
+                'hourly': hourly_list,    
+                'units': data.get('current_units', {})
+            }
+            
+            return Response(weather_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": f"Lỗi lấy dữ liệu: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 #Chatbot
 class WeatherChatbotView(APIView):
     permission_classes = [AllowAny]
