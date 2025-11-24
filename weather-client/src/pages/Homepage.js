@@ -19,3 +19,17 @@ function ChangeView({ center }) {
     map.setView(center, 11);
     return null;
 }
+//today weather
+const getWeatherStatus = (code) => {
+    if (code === undefined) return ""; if (code === 0) return "Clear sky"; if (code <= 3) return "Partly cloudy"; if (code <= 48) return "Fog"; if (code <= 67) return "Rain"; if (code >= 95) return "Thunderstorm"; return "Rain";
+};
+const getWindDirection = (degree) => {
+    if (degree === undefined) return ""; const d = ['North', 'Northeast', 'East', 'Southeast', 'South', 'Southwest', 'West', 'Northwest']; return d[Math.round(degree/45)%8];
+};
+const formatDate = (dateStr) => { if(!dateStr) return ""; const [y,m,d] = dateStr.split("-"); return `${d}/${m}`; };
+const getWeatherIcon = (code) => {
+    if (code === 0) return "https://cdn-icons-png.flaticon.com/512/869/869869.png"; 
+    if (code <= 3) return "https://cdn-icons-png.flaticon.com/512/1163/1163661.png";
+    if (code <= 67) return "https://cdn-icons-png.flaticon.com/512/1163/1163627.png";
+    return "https://cdn-icons-png.flaticon.com/512/1163/1163636.png";
+};
