@@ -148,8 +148,39 @@ class FavoriteLocationView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 #Chatbot
+#6. API chatbot
 class WeatherChatbotView(APIView):
     permission_classes = [AllowAny]
+    
+    def classify_intent(self, question):
+        """
+        Phân loại ý định của câu hỏi người dùng
+        Returns: 'greeting', 'weather', 'outfit', 'activity', 'other'
+        """
+        question_lower = question.lower()
+        
+        # Greeting keywords
+        greeting_keywords = ['chào', 'hi', 'hello', 'xin chào', 'bạn khỏe', 'sao vậy', 'ơi']
+        if any(kw in question_lower for kw in greeting_keywords):
+            return 'greeting'
+        
+        # Weather keywords
+        weather_keywords = ['thời tiết', 'nhiệt độ', 'mưa', 'nắng', 'nóng', 'lạnh', 'gió', 'độ ẩm', 'áp suất', 'mây', 'sương', 'thế nào', 'như thế nào', 'tình hình', 'trời']
+        if any(kw in question_lower for kw in weather_keywords):
+            return 'weather'
+        
+        # Outfit/clothing keywords
+        outfit_keywords = ['mặc gì', 'mặc', 'quần áo', 'áo', 'quần', 'giày', 'trang phục', 'mặc sao', 'nên mặc', 'phục trang']
+        if any(kw in question_lower for kw in outfit_keywords):
+            return 'outfit'
+        
+        # Activity/outdoor keywords
+        activity_keywords = ['làm gì', 'nên làm', 'hoạt động', 'chơi', 'đi', 'có thể', 'được không', 'được', 'tốt không', 'hợp không', 'ngoài trời', 'ngoài']
+        if any(kw in question_lower for kw in activity_keywords):
+            return 'activity'
+        
+        return 'other'
+    
     def post(self, request, *args, **kwargs):
         lat = request.data.get('lat')
         lon = request.data.get('lon')
@@ -160,23 +191,104 @@ class WeatherChatbotView(APIView):
             return Response({"error": "Thiếu toạ độ"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            weather_params = {'latitude': lat, 'longitude': lon, 'current': 'temperature_2m,weathercode,windspeed_10m,precipitation'}
+            # 1. Gọi API thời tiết
+            weather_params = {
+                'latitude': lat, 
+                'longitude': lon, 
+                'current': 'temperature_2m,weathercode,windspeed_10m,winddirection_10m,precipitation,relative_humidity_2m,pressure_msl',
+                'daily': 'temperature_2m_max,temperature_2m_min,weathercode'
+            }
             res = requests.get('https://api.open-meteo.com/v1/forecast', params=weather_params)
             w_data = res.json().get('current', {})
+            daily_data = res.json().get('daily', {})
             
-            weather_desc = f"Vị trí: {city_name}, Nhiệt độ: {w_data.get('temperature_2m')}°C, WMO: {w_data.get('weathercode')}, Gió: {w_data.get('windspeed_10m')}km/h"
+            weather_codes = {
+                0: 'Trời quang', 1: 'Hầu như quang', 2: 'Hơi mây', 3: 'Mây',
+                45: 'Sương mù', 48: 'Sương mù đóng tuyết',
+                51: 'Mưa nhẹ', 53: 'Mưa nhẹ', 55: 'Mưa nhẹ dày đặc',
+                61: 'Mưa vừa', 63: 'Mưa nặng', 65: 'Mưa rất nặng',
+                71: 'Tuyết nhẹ', 73: 'Tuyết', 75: 'Tuyết dày đặc',
+                80: 'Mưa rào vừa', 81: 'Mưa rào nặng', 82: 'Mưa rào dữ dội',
+                95: 'Bão với mưa đá', 96: 'Bão với mưa đá', 99: 'Bão với mưa đá'
+            }
+            
+            weather_code = w_data.get('weathercode', 3)
+            weather_desc_text = weather_codes.get(weather_code, 'Không xác định')
+            
+            weather_desc = f"""
+            Vị trí: {city_name}
+            Nhiệt độ: {w_data.get('temperature_2m')}°C
+            Trạng thái: {weather_desc_text} (mã: {weather_code})
+            Gió: {w_data.get('windspeed_10m')} km/h, hướng {w_data.get('winddirection_10m')}°
+            Độ ẩm: {w_data.get('relative_humidity_2m')}%
+            Mưa: {w_data.get('precipitation')} mm
+            Áp suất: {w_data.get('pressure_msl')} hPa
+            Dự báo hôm nay: min {daily_data.get('temperature_2m_min', [0])[0]}°C, max {daily_data.get('temperature_2m_max', [0])[0]}°C
+                        """
 
-            system_instruction = f"""
-            Bạn là trợ lý thời tiết thân thiện. Dữ liệu: {weather_desc}.
-            YÊU CẦU: Trả lời ngắn gọn, Bằng tiếng anh.format JSON Array. Ví dụ: ["Câu 1", "Câu 2"].
-            """
+            # 2. Phân loại ý định
+            intent = self.classify_intent(user_question) if user_question else 'other'
 
-            if user_question:
-                prompt = f"""{system_instruction} \n Người dùng hỏi: "{user_question}" Bằng tiếng anh.."""
-            else:
-                prompt = f"""{system_instruction} \n Đưa ra lời khuyên ngay lúc này. Bằng tiếng anh."""
+            # 3. Tạo PROMPT theo intent
+            if intent == 'greeting':
+                system_instruction = f"""
+            Bạn là trợ lý thời tiết thân thiện. Dữ liệu thời tiết: {weather_desc}
 
+            NHIỆM VỤ: Người dùng chào hỏi bạn. 
+            - Trả lời chào hỏi ngắn gọn, thân thiện.
+            - Sau đó, gợi ý thông tin thời tiết hoặc trang phục.
+            - Trả về dạng JSON Array danh sách câu.
+            Ví dụ: ["Chào bạn! 👋", "Hôm nay trời ấm áp 🌤️", "Mình có thể giúp gì cho bạn?"]
+                """
+            elif intent == 'weather':
+                system_instruction = f"""
+            Bạn là trợ lý thời tiết chuyên nghiệp. Dữ liệu: {weather_desc}
+
+            NHIỆM VỤ: Người dùng hỏi về thời tiết.
+            - Trả lời chi tiết, dễ hiểu, dùng emoji minh họa.
+            - Giải thích tình hình thời tiết hiện tại và dự báo.
+            - Trả về JSON Array.
+            Ví dụ: ["Hiện tại tại {city_name} trời khá ấm áp 🌤️", "Nhiệt độ khoảng 25°C, gió nhẹ", "Không có mưa dự báo trong hôm nay"]
+                """
+            elif intent == 'outfit':
+                system_instruction = f"""
+            Bạn là stylist thời tiết. Dữ liệu: {weather_desc}
+
+            NHIỆM VỤ: Gợi ý trang phục dựa vào thời tiết.
+            - Trả lời không quá dài dòng, đủ ý là được.
+            - Kiến nghị cụ thể: loại áo, quần, phụ kiện.
+            - Giải thích tại sao (dựa vào nhiệt độ, độ ẩm, mưa).
+            - Trả về JSON Array.
+            Ví dụ: ["Với nhiệt độ 25°C, bạn nên mặc áo sơ mi mỏng hoặc áo phông 👕", "Quần linen hoặc quần shorts sẽ rất thoải mái", "Đôi giày sneaker hoặc dép thoáng khí là lựa chọn tốt 👟"]
+                            """
+            elif intent == 'activity':
+                system_instruction = f"""
+            Bạn là cố vấn hoạt động ngoài trời. Dữ liệu: {weather_desc}
+
+            NHIỆM VỤ: Gợi ý hoạt động phù hợp với thời tiết.
+
+            - Nêu hoạt động ngoài trời phù hợp.
+            - Cảnh báo nếu cần (nắng, mưa, gió mạnh).
+            - Trả về JSON Array.
+            Ví dụ: ["Hôm nay thời tiết đẹp, rất hợp để đi dạo công viên 🚶", "Bạn có thể chơi thể thao ngoài trời hoặc picnic", "Nhớ mang theo nước và áo chống nắng nhé ☀️"]
+                """
+            else:  # other
+                system_instruction = f"""
+            Bạn là trợ lý thời tiết. Dữ liệu: {weather_desc}
+
+            NHIỆM VỤ: Người dùng hỏi về chủ đề không liên quan trực tiếp.
+            - Trả lời ngắn gọn rằng bạn chuyên về thời tiết.
+            - Gợi ý điều gì bạn có thể giúp.
+            - Trả về JSON Array.
+            Ví dụ: ["Mình là trợ lý thời tiết 🌤️", "Không chắc về chủ đề đó, nhưng mình có thể giúp bạn với thời tiết!", "Bạn muốn biết thời tiết hoặc gợi ý trang phục không?"]
+                            """
+
+            prompt = f"""{system_instruction}\n\nPhân loại ý định: {intent}\nCâu hỏi: "{user_question}"\n\nHãy trả lời dưới dạng JSON Array các câu."""
+
+            # 4. Gọi Gemini
             gemini_res = model.generate_content(prompt)
+            
+            # Xử lý sạch text để lấy JSON
             clean_text = gemini_res.text.replace('```json', '').replace('```', '').strip()
             
             try:
@@ -184,7 +296,19 @@ class WeatherChatbotView(APIView):
             except:
                 reply_list = [clean_text]
 
-            return Response({"reply": reply_list}, status=status.HTTP_200_OK)
+            # Trả về List các câu + phân loại intent
+            return Response({
+                "reply": reply_list,
+                "intent": intent,
+                "weather_data": {
+                    "temperature": w_data.get('temperature_2m'),
+                    "weathercode": weather_code,
+                    "status": weather_desc_text,
+                    "windspeed": w_data.get('windspeed_10m'),
+                    "humidity": w_data.get('relative_humidity_2m'),
+                    "precipitation": w_data.get('precipitation')
+                }
+            }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
