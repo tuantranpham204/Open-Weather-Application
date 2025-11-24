@@ -17,3 +17,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             email=validated_data.get('email', '')
         )
         return user
+# Serializer favorite location 
+class FavoriteLocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FavoriteLocation
+        fields = ['id', 'city_name', 'latitude', 'longitude', 'added_on'] 
+        read_only_fields = ['user']
