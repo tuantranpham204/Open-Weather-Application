@@ -137,6 +137,16 @@ class WeatherDataView(APIView):
 
         except Exception as e:
             return Response({"error": f"Lỗi lấy dữ liệu: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#favorite location
+class FavoriteLocationView(generics.ListCreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = FavoriteLocationSerializer
+
+    def get_queryset(self):
+        return FavoriteLocation.objects.filter(user=self.request.user).order_by('-added_on')
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 #Chatbot
 class WeatherChatbotView(APIView):
     permission_classes = [AllowAny]
