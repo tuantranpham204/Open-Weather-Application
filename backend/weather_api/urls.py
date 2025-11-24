@@ -13,5 +13,8 @@ urlpatterns = [
     path('login/', TokenObtainPairView.as_view(), name='login'),       
     path('token/refresh/', TokenRefreshView.as_view(), name='refresh'),
     #2. Search city weather
-    path('search-city/', SearchCityView.as_view(), name='search-city'), 
+    path('search-city/', SearchCityView.as_view(), name='search-city'),
+    #3. favorite location
+      path('favorites/', FavoriteLocationView.as_view(), name='favorites-list'),
+    path('favorites/<int:pk>/', FavoriteLocationDetailView.as_view(), name='favorites-detail'),  
 ]
