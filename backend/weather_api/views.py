@@ -149,6 +149,7 @@ class FavoriteLocationView(generics.ListCreateAPIView):
         serializer.save(user=self.request.user)
 #Chatbot
 #6. API chatbot
+#6. API chatbot
 class WeatherChatbotView(APIView):
     permission_classes = [AllowAny]
     
@@ -202,6 +203,7 @@ class WeatherChatbotView(APIView):
             w_data = res.json().get('current', {})
             daily_data = res.json().get('daily', {})
             
+            # Giải thích mã thời tiết WMO
             weather_codes = {
                 0: 'Trời quang', 1: 'Hầu như quang', 2: 'Hơi mây', 3: 'Mây',
                 45: 'Sương mù', 48: 'Sương mù đóng tuyết',
@@ -231,7 +233,7 @@ class WeatherChatbotView(APIView):
 
             # 3. Tạo PROMPT theo intent
             if intent == 'greeting':
-                system_instruction = f"""
+                system_instruction = f""" Trả lời tiếng anh.
             Bạn là trợ lý thời tiết thân thiện. Dữ liệu thời tiết: {weather_desc}
 
             NHIỆM VỤ: Người dùng chào hỏi bạn. 
@@ -241,7 +243,7 @@ class WeatherChatbotView(APIView):
             Ví dụ: ["Chào bạn! 👋", "Hôm nay trời ấm áp 🌤️", "Mình có thể giúp gì cho bạn?"]
                 """
             elif intent == 'weather':
-                system_instruction = f"""
+                system_instruction = f""" Trả lời tiếng anh.
             Bạn là trợ lý thời tiết chuyên nghiệp. Dữ liệu: {weather_desc}
 
             NHIỆM VỤ: Người dùng hỏi về thời tiết.
@@ -251,7 +253,7 @@ class WeatherChatbotView(APIView):
             Ví dụ: ["Hiện tại tại {city_name} trời khá ấm áp 🌤️", "Nhiệt độ khoảng 25°C, gió nhẹ", "Không có mưa dự báo trong hôm nay"]
                 """
             elif intent == 'outfit':
-                system_instruction = f"""
+                system_instruction = f""" Trả lời tiếng anh.
             Bạn là stylist thời tiết. Dữ liệu: {weather_desc}
 
             NHIỆM VỤ: Gợi ý trang phục dựa vào thời tiết.
@@ -262,7 +264,7 @@ class WeatherChatbotView(APIView):
             Ví dụ: ["Với nhiệt độ 25°C, bạn nên mặc áo sơ mi mỏng hoặc áo phông 👕", "Quần linen hoặc quần shorts sẽ rất thoải mái", "Đôi giày sneaker hoặc dép thoáng khí là lựa chọn tốt 👟"]
                             """
             elif intent == 'activity':
-                system_instruction = f"""
+                system_instruction = f""" Trả lời tiếng anh.
             Bạn là cố vấn hoạt động ngoài trời. Dữ liệu: {weather_desc}
 
             NHIỆM VỤ: Gợi ý hoạt động phù hợp với thời tiết.
@@ -273,7 +275,7 @@ class WeatherChatbotView(APIView):
             Ví dụ: ["Hôm nay thời tiết đẹp, rất hợp để đi dạo công viên 🚶", "Bạn có thể chơi thể thao ngoài trời hoặc picnic", "Nhớ mang theo nước và áo chống nắng nhé ☀️"]
                 """
             else:  # other
-                system_instruction = f"""
+                system_instruction = f""" Trả lời tiếng anh.
             Bạn là trợ lý thời tiết. Dữ liệu: {weather_desc}
 
             NHIỆM VỤ: Người dùng hỏi về chủ đề không liên quan trực tiếp.
