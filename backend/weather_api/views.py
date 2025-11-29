@@ -1,187 +1,235 @@
 import requests
+import json
+import google.generativeai as genai
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .serializers import  RegisterSerializer
+from .models import FavoriteLocation, UserPreferences
+from .serializers import FavoriteLocationSerializer, RegisterSerializer
+from datetime import datetime
+
+# API Gemini
+GEMINI_API_KEY = "AIzaSyAl7RVOzAhJK4jq3nklB_S0G_0OUPN4Ei0"
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 # URL API Open-Meteo
 WEATHER_API_URL = 'https://api.open-meteo.com/v1/forecast'
 GEOCODING_API_URL = 'https://geocoding-api.open-meteo.com/v1/search'
+AIR_QUALITY_API_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 
-#Register
+# API Weather Data
+class WeatherDataView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    # --- LOGIC TÍNH TOÁN SỨC KHỎE (GIỮ NGUYÊN CỦA FILE MỚI) ---
+    def analyze_health_activity(self, current):
+        temp = current.get("temperature_2m", 0)
+        humidity = current.get("relative_humidity_2m", 0)
+        wind = current.get("windspeed_10m", 0)
+        rain = current.get("precipitation", 0)
+        pressure = current.get("pressure_msl", 1013)
+
+        arthritis = 2 if (humidity > 75 or temp < 15) else 1 if humidity > 60 else 0
+        sinus = 2 if pressure < 1000 else 1 if pressure < 1008 else 0
+        flu = 2 if temp < 12 else 1 if temp < 18 else 0
+        migraine = 2 if (pressure < 995 or temp > 35) else 1 if pressure < 1005 else 0
+        asthma = 2 if humidity > 85 else 1 if humidity > 70 else 0
+
+        fishing = 2 if rain == 0 and wind < 15 else 1 if rain < 1 else 0
+        running = 2 if 18 <= temp <= 25 and rain == 0 else 1 if 15 <= temp <= 30 else 0
+        golf = 2 if wind < 15 and rain == 0 else 1 if wind < 20 else 0
+        bike = 2 if wind < 20 and rain == 0 else 1 if wind < 25 else 0
+        beach = 2 if temp >= 28 and rain == 0 else 1 if temp >= 24 else 0
+        drive = 2 if rain == 0 else 1 if rain < 2 else 0
+
+        def map_health(level):
+            if level == 2: return {"status": "Cao", "color": "#ef4444"}
+            if level == 1: return {"status": "Trung bình", "color": "#eab308"}
+            return {"status": "Thấp", "color": "#22c55e"}
+
+        def map_activity(level):
+            if level == 2: return {"status": "Tốt", "color": "#22c55e"}
+            if level == 1: return {"status": "Khá", "color": "#eab308"}
+            return {"status": "Kém", "color": "#ef4444"}
+
+        return {
+            "health": [
+                {"id": "art", "label": "Viêm khớp", "icon": "bone", **map_health(arthritis)},
+                {"id": "sin", "label": "Áp lực xoang", "icon": "head-side", **map_health(sinus)},
+                {"id": "flu", "label": "Cảm cúm", "icon": "temperature", **map_health(flu)},
+                {"id": "mig", "label": "Đau nửa đầu", "icon": "brain", **map_health(migraine)},
+                {"id": "ast", "label": "Hen suyễn", "icon": "lungs", **map_health(asthma)},
+            ],
+            "activities": [
+                {"id": "fis", "label": "Câu cá", "icon": "fish", **map_activity(fishing)},
+                {"id": "run", "label": "Chạy bộ", "icon": "running", **map_activity(running)},
+                {"id": "gol", "label": "Đánh gôn", "icon": "golf", **map_activity(golf)},
+                {"id": "bik", "label": "Đạp xe", "icon": "bicycle", **map_activity(bike)},
+                {"id": "bea", "label": "Bãi biển", "icon": "sun", **map_activity(beach)},
+                {"id": "dri", "label": "Lái xe", "icon": "car", **map_activity(drive)},
+            ],
+        }
+
+   
+    def get_air_quality(self, lat, lon):
+        try:
+            params = {
+                "latitude": lat,
+                "longitude": lon,
+                "current": "us_aqi,pm2_5",
+                "timezone": "auto",
+            }
+            res = requests.get(AIR_QUALITY_API_URL, params=params, timeout=5) # Thêm timeout
+            res.raise_for_status()
+            current = res.json().get("current", {})
+
+            aqi = current.get("us_aqi", 0)
+            pm25 = current.get("pm2_5", 0)
+
+            def map_us_aqi(v):
+                if v <= 50: return "Tốt", "#22c55e"                 # Xanh lá
+                if v <= 100: return "Trung bình", "#eab308"         # Vàng
+                if v <= 150: return "Kém cho nhóm nhạy cảm", "#ff7e00" # Cam
+                if v <= 200: return "Xấu", "#ff0000"                # Đỏ
+                if v <= 300: return "Rất xấu", "#8f3f97"            # Tím
+                return "Nguy hại", "#7e0023"                        # Nâu đỏ (Maroon)
+
+            # PM2.5 theo chuẩn EPA (µg/m³)
+            def map_pm25_epa(v):
+                if v <= 12: return "Tốt", "#22c55e"
+                if v <= 35.4: return "Trung bình", "#eab308"
+                if v <= 55.4: return "Kém", "#ff7e00"
+                if v <= 150.4: return "Xấu", "#ff0000"
+                if v <= 250.4: return "Rất xấu", "#8f3f97"
+                return "Nguy hại", "#7e0023"
+
+            aqi_status, aqi_color = map_us_aqi(aqi)
+            pm_status, pm_color = map_pm25_epa(pm25)
+
+            return {
+                "aqi": {"value": aqi, "status": aqi_status, "color": aqi_color, "percent": min(int(aqi / 300 * 100), 100)},
+                "pm25": {"value": pm25, "status": pm_status, "color": pm_color, "percent": min(int(pm25 / 200 * 100), 100)},
+            }
+        except Exception:
+            # Nếu lỗi lấy không khí, trả về mặc định để app không chết
+            return {"aqi": {"value": 0, "status": "N/A", "color": "#ccc", "percent": 0}, "pm25": {"value": 0, "status": "N/A", "color": "#ccc", "percent": 0}}
+
+    # --- GET DATA ---
+    def get(self, request):
+        lat = request.query_params.get("lat")
+        lon = request.query_params.get("lon")
+
+        if not lat or not lon:
+            return Response({"error": "lat & lon required"}, status=400)
+
+        try:
+            weather_params = {
+                "latitude": lat,
+                "longitude": lon,
+                "current": "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weathercode,pressure_msl,windspeed_10m,winddirection_10m,uv_index,visibility,dew_point_2m",
+                "daily": "weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum",
+                "hourly": "temperature_2m,precipitation,weathercode,pressure_msl,uv_index,visibility,dew_point_2m",
+                "timezone": "auto",
+                "forecast_days": 14,
+            }
+
+            data = requests.get(WEATHER_API_URL, params=weather_params).json()
+
+            current = data.get("current", {})
+            daily = data.get("daily", {})
+            hourly = data.get("hourly", {})
+
+            # 1. Xử lý Daily (Dùng .get để an toàn)
+            forecast_list = []
+            if "time" in daily:
+                for i in range(len(daily["time"])):
+                    forecast_list.append({
+                        "date": daily["time"][i],
+                        "max_temp": daily.get("temperature_2m_max", [])[i],
+                        "min_temp": daily.get("temperature_2m_min", [])[i],
+                        "weathercode": daily.get("weathercode", [])[i],
+                        "precipitation": daily.get("precipitation_sum", [])[i],
+                        "sunrise": daily.get("sunrise", [])[i],
+                        "sunset": daily.get("sunset", [])[i],
+                        "uv_index_max": daily.get("uv_index_max", [])[i] if "uv_index_max" in daily else 0,
+                    })
+
+            # 2. Xử lý Hourly (QUAN TRỌNG: Khôi phục logic cắt chuỗi thời gian)
+            hourly_list = []
+            if "time" in hourly:
+                for i in range(len(hourly["time"])):
+                    full_time = hourly["time"][i]
+                    # SỬA LẠI: Tách giờ như file cũ để Frontend không bị lỗi
+                    time_str = full_time.split('T')[1] if 'T' in full_time else full_time
+                    
+                    hourly_list.append({
+                        "full_time": full_time, # Thêm lại key này cho chắc
+                        "time": time_str,       # Trả về giờ dạng ngắn (VD: 14:00)
+                        "temp": hourly.get("temperature_2m", [])[i],
+                        "weathercode": hourly.get("weathercode", [])[i],
+                        "rain": hourly.get("precipitation", [])[i],
+                        "uv_index": hourly.get("uv_index", [])[i] if "uv_index" in hourly else 0,
+                        "visibility": hourly.get("visibility", [])[i] if "visibility" in hourly else 0,
+                        "pressure_msl": hourly.get("pressure_msl", [])[i] if "pressure_msl" in hourly else 0,
+                        "dewpoint_2m": hourly.get("dew_point_2m", [])[i] if "dew_point_2m" in hourly else 0,
+                    })
+
+            weather_data = {
+                "current": {
+                    "temperature": current.get("temperature_2m"),
+                    "humidity": current.get("relative_humidity_2m"),
+                    "precipitation": current.get("precipitation"),
+                    "weathercode": current.get("weathercode"),
+                    "windspeed": current.get("windspeed_10m"),
+                    "winddirection": current.get("winddirection_10m"), # Đảm bảo field này có
+                    "pressure": current.get("pressure_msl"),
+                    "uv_index": current.get("uv_index"),
+                    "visibility": current.get("visibility"),
+                    "dewpoint_2m": current.get("dew_point_2m"),
+                    "is_day": current.get("is_day"),
+                    "apparent_temperature": current.get("apparent_temperature"),
+                },
+                "health_activity": self.analyze_health_activity(current),
+                "air_quality": self.get_air_quality(lat, lon), # Đã bọc try-except
+                "forecast": forecast_list,
+                "hourly": hourly_list,
+                "daily": daily,
+                "units": data.get("current_units", {}),
+            }
+
+            return Response(weather_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# Các API còn lại giữ nguyên
 class RegisterView(APIView):
-    permission_classes = [AllowAny] 
-    
+    permission_classes = [AllowAny]
     def post(self, request, *args, **kwargs):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
             return Response({"message": f"User '{user.username}' đã tạo thành công."}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-#Search
-class SearchCityView(APIView):
-    permission_classes = [AllowAny]
-    authentication_classes = []
-    
-    def get(self, request, *args, **kwargs):
-        city = request.query_params.get('city', None)
-        if not city:
-            return Response({"error": "Need city name."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        geo_params = {'name': city, 'count': 10, 'language': 'vi', 'format': 'json'}
-        
-        try:
-            geo_response = requests.get(GEOCODING_API_URL, params=geo_params)
-            geo_response.raise_for_status()
-            geo_data = geo_response.json()
 
-            if not geo_data.get('results'):
-                return Response({"error": f"No result for'{city}'."}, status=status.HTTP_404_NOT_FOUND)
-            
-            locations = []
-            for res in geo_data['results']:
-                locations.append({
-                    'id': res['id'],
-                    'name': res.get('name', 'Unknow name'),
-                    'country': res.get('country', ''),
-                    'admin1': res.get('admin1', ''),
-                    'latitude': res['latitude'],
-                    'longitude': res['longitude'],
-                })
-            return Response(locations, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response({"error": f"Lỗi server: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-# API weather 
-class WeatherDataView(APIView):
-    permission_classes = [AllowAny] 
-    authentication_classes = []
-    
-    def get(self, request, *args, **kwargs):
-        lat = request.query_params.get('lat')
-        lon = request.query_params.get('lon')
-        if not lat or not lon:
-            return Response({"error": "'lat' and 'lon' are required."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            weather_params = {
-                'latitude': lat,
-                'longitude': lon,
-                # 1. Real time 
-                'current': 'temperature_2m,relative_humidity_2m,precipitation,weathercode,windspeed_10m,winddirection_10m,pressure_msl',
-                # 2. Forecast 7 days
-                'daily': 'weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum',
-                # 3. Forecast 24h 
-                'hourly': 'temperature_2m,weathercode,precipitation',
-                'timezone': 'auto'
-            }
-            
-            response = requests.get(WEATHER_API_URL, params=weather_params)
-            response.raise_for_status()
-            data = response.json()
-
-            # --- CURRENT ---
-            current = data.get('current', {})
-            
-            # --- DAILY --- 
-            daily = data.get('daily', {})
-            forecast_list = []
-            if 'time' in daily:
-                for i in range(len(daily['time'])):
-                    forecast_list.append({
-                        'date': daily['time'][i],
-                        'max_temp': daily['temperature_2m_max'][i],
-                        'min_temp': daily['temperature_2m_min'][i],
-                        'weathercode': daily['weathercode'][i],
-                        'precipitation': daily['precipitation_sum'][i],
-                        'sunrise': daily['sunrise'][i],
-                        'sunset': daily['sunset'][i]
-                    })
-
-            # --- HOURLY ---
-            hourly = data.get('hourly', {})
-            hourly_list = []
-            if 'time' in hourly:
-                for i in range(len(hourly['time'])):
-                    # API return "2024-11-18T14:00"
-                    full_time = hourly['time'][i]
-                    # Extract hour 
-                    time_str = full_time.split('T')[1] if 'T' in full_time else full_time
-                    
-                    hourly_list.append({
-                        'full_time': full_time, 
-                        'time': time_str,      
-                        'temp': hourly['temperature_2m'][i],
-                        'code': hourly['weathercode'][i],
-                        'rain': hourly['precipitation'][i]
-                    })
-
-            # Return data
-            weather_data = {
-                'current': {
-                    'temperature': current.get('temperature_2m'),
-                    'humidity': current.get('relative_humidity_2m'),
-                    'precipitation': current.get('precipitation'),
-                    'weathercode': current.get('weathercode'),
-                    'windspeed': current.get('windspeed_10m'),
-                    'winddirection': current.get('winddirection_10m'),
-                    'pressure': current.get('pressure_msl'),
-                },
-                'forecast': forecast_list, 
-                'hourly': hourly_list,    
-                'units': data.get('current_units', {})
-            }
-            
-            return Response(weather_data, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response({"error": f"Lỗi lấy dữ liệu: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-#favorite location
 class FavoriteLocationView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = FavoriteLocationSerializer
-
     def get_queryset(self):
         return FavoriteLocation.objects.filter(user=self.request.user).order_by('-added_on')
-
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-#Chatbot
-#6. API chatbot
-#6. API chatbot
+
+class FavoriteLocationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = FavoriteLocationSerializer
+    def get_queryset(self):
+        return FavoriteLocation.objects.filter(user=self.request.user)
+
 class WeatherChatbotView(APIView):
     permission_classes = [AllowAny]
-    
-    def classify_intent(self, question):
-        """
-        Phân loại ý định của câu hỏi người dùng
-        Returns: 'greeting', 'weather', 'outfit', 'activity', 'other'
-        """
-        question_lower = question.lower()
-        
-        # Greeting keywords
-        greeting_keywords = ['chào', 'hi', 'hello', 'xin chào', 'bạn khỏe', 'sao vậy', 'ơi']
-        if any(kw in question_lower for kw in greeting_keywords):
-            return 'greeting'
-        
-        # Weather keywords
-        weather_keywords = ['thời tiết', 'nhiệt độ', 'mưa', 'nắng', 'nóng', 'lạnh', 'gió', 'độ ẩm', 'áp suất', 'mây', 'sương', 'thế nào', 'như thế nào', 'tình hình', 'trời']
-        if any(kw in question_lower for kw in weather_keywords):
-            return 'weather'
-        
-        # Outfit/clothing keywords
-        outfit_keywords = ['mặc gì', 'mặc', 'quần áo', 'áo', 'quần', 'giày', 'trang phục', 'mặc sao', 'nên mặc', 'phục trang']
-        if any(kw in question_lower for kw in outfit_keywords):
-            return 'outfit'
-        
-        # Activity/outdoor keywords
-        activity_keywords = ['làm gì', 'nên làm', 'hoạt động', 'chơi', 'đi', 'có thể', 'được không', 'được', 'tốt không', 'hợp không', 'ngoài trời', 'ngoài']
-        if any(kw in question_lower for kw in activity_keywords):
-            return 'activity'
-        
-        return 'other'
-    
     def post(self, request, *args, **kwargs):
         lat = request.data.get('lat')
         lon = request.data.get('lon')
@@ -192,105 +240,23 @@ class WeatherChatbotView(APIView):
             return Response({"error": "Thiếu toạ độ"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # 1. Gọi API thời tiết
-            weather_params = {
-                'latitude': lat, 
-                'longitude': lon, 
-                'current': 'temperature_2m,weathercode,windspeed_10m,winddirection_10m,precipitation,relative_humidity_2m,pressure_msl',
-                'daily': 'temperature_2m_max,temperature_2m_min,weathercode'
-            }
+            weather_params = {'latitude': lat, 'longitude': lon, 'current': 'temperature_2m,weathercode,windspeed_10m,precipitation'}
             res = requests.get('https://api.open-meteo.com/v1/forecast', params=weather_params)
             w_data = res.json().get('current', {})
-            daily_data = res.json().get('daily', {})
             
-            # Giải thích mã thời tiết WMO
-            weather_codes = {
-                0: 'Trời quang', 1: 'Hầu như quang', 2: 'Hơi mây', 3: 'Mây',
-                45: 'Sương mù', 48: 'Sương mù đóng tuyết',
-                51: 'Mưa nhẹ', 53: 'Mưa nhẹ', 55: 'Mưa nhẹ dày đặc',
-                61: 'Mưa vừa', 63: 'Mưa nặng', 65: 'Mưa rất nặng',
-                71: 'Tuyết nhẹ', 73: 'Tuyết', 75: 'Tuyết dày đặc',
-                80: 'Mưa rào vừa', 81: 'Mưa rào nặng', 82: 'Mưa rào dữ dội',
-                95: 'Bão với mưa đá', 96: 'Bão với mưa đá', 99: 'Bão với mưa đá'
-            }
-            
-            weather_code = w_data.get('weathercode', 3)
-            weather_desc_text = weather_codes.get(weather_code, 'Không xác định')
-            
-            weather_desc = f"""
-            Vị trí: {city_name}
-            Nhiệt độ: {w_data.get('temperature_2m')}°C
-            Trạng thái: {weather_desc_text} (mã: {weather_code})
-            Gió: {w_data.get('windspeed_10m')} km/h, hướng {w_data.get('winddirection_10m')}°
-            Độ ẩm: {w_data.get('relative_humidity_2m')}%
-            Mưa: {w_data.get('precipitation')} mm
-            Áp suất: {w_data.get('pressure_msl')} hPa
-            Dự báo hôm nay: min {daily_data.get('temperature_2m_min', [0])[0]}°C, max {daily_data.get('temperature_2m_max', [0])[0]}°C
-                        """
+            weather_desc = f"Vị trí: {city_name}, Nhiệt độ: {w_data.get('temperature_2m')}°C, WMO: {w_data.get('weathercode')}, Gió: {w_data.get('windspeed_10m')}km/h"
 
-            # 2. Phân loại ý định
-            intent = self.classify_intent(user_question) if user_question else 'other'
+            system_instruction = f"""
+            Bạn là trợ lý thời tiết thân thiện. Dữ liệu: {weather_desc}.
+            YÊU CẦU: Trả lời ngắn gọn, Bằng tiếng anh.format JSON Array. Ví dụ: ["Câu 1", "Câu 2"].
+            """
 
-            # 3. Tạo PROMPT theo intent
-            if intent == 'greeting':
-                system_instruction = f""" Trả lời tiếng anh.
-            Bạn là trợ lý thời tiết thân thiện. Dữ liệu thời tiết: {weather_desc}
+            if user_question:
+                prompt = f"""{system_instruction} \n Người dùng hỏi: "{user_question}" Bằng tiếng anh.."""
+            else:
+                prompt = f"""{system_instruction} \n Đưa ra lời khuyên ngay lúc này. Bằng tiếng anh."""
 
-            NHIỆM VỤ: Người dùng chào hỏi bạn. 
-            - Trả lời chào hỏi ngắn gọn, thân thiện.
-            - Sau đó, gợi ý thông tin thời tiết hoặc trang phục.
-            - Trả về dạng JSON Array danh sách câu.
-            Ví dụ: ["Chào bạn! 👋", "Hôm nay trời ấm áp 🌤️", "Mình có thể giúp gì cho bạn?"]
-                """
-            elif intent == 'weather':
-                system_instruction = f""" Trả lời tiếng anh.
-            Bạn là trợ lý thời tiết chuyên nghiệp. Dữ liệu: {weather_desc}
-
-            NHIỆM VỤ: Người dùng hỏi về thời tiết.
-            - Trả lời chi tiết, dễ hiểu, dùng emoji minh họa.
-            - Giải thích tình hình thời tiết hiện tại và dự báo.
-            - Trả về JSON Array.
-            Ví dụ: ["Hiện tại tại {city_name} trời khá ấm áp 🌤️", "Nhiệt độ khoảng 25°C, gió nhẹ", "Không có mưa dự báo trong hôm nay"]
-                """
-            elif intent == 'outfit':
-                system_instruction = f""" Trả lời tiếng anh.
-            Bạn là stylist thời tiết. Dữ liệu: {weather_desc}
-
-            NHIỆM VỤ: Gợi ý trang phục dựa vào thời tiết.
-            - Trả lời không quá dài dòng, đủ ý là được.
-            - Kiến nghị cụ thể: loại áo, quần, phụ kiện.
-            - Giải thích tại sao (dựa vào nhiệt độ, độ ẩm, mưa).
-            - Trả về JSON Array.
-            Ví dụ: ["Với nhiệt độ 25°C, bạn nên mặc áo sơ mi mỏng hoặc áo phông 👕", "Quần linen hoặc quần shorts sẽ rất thoải mái", "Đôi giày sneaker hoặc dép thoáng khí là lựa chọn tốt 👟"]
-                            """
-            elif intent == 'activity':
-                system_instruction = f""" Trả lời tiếng anh.
-            Bạn là cố vấn hoạt động ngoài trời. Dữ liệu: {weather_desc}
-
-            NHIỆM VỤ: Gợi ý hoạt động phù hợp với thời tiết.
-
-            - Nêu hoạt động ngoài trời phù hợp.
-            - Cảnh báo nếu cần (nắng, mưa, gió mạnh).
-            - Trả về JSON Array.
-            Ví dụ: ["Hôm nay thời tiết đẹp, rất hợp để đi dạo công viên 🚶", "Bạn có thể chơi thể thao ngoài trời hoặc picnic", "Nhớ mang theo nước và áo chống nắng nhé ☀️"]
-                """
-            else:  # other
-                system_instruction = f""" Trả lời tiếng anh.
-            Bạn là trợ lý thời tiết. Dữ liệu: {weather_desc}
-
-            NHIỆM VỤ: Người dùng hỏi về chủ đề không liên quan trực tiếp.
-            - Trả lời ngắn gọn rằng bạn chuyên về thời tiết.
-            - Gợi ý điều gì bạn có thể giúp.
-            - Trả về JSON Array.
-            Ví dụ: ["Mình là trợ lý thời tiết 🌤️", "Không chắc về chủ đề đó, nhưng mình có thể giúp bạn với thời tiết!", "Bạn muốn biết thời tiết hoặc gợi ý trang phục không?"]
-                            """
-
-            prompt = f"""{system_instruction}\n\nPhân loại ý định: {intent}\nCâu hỏi: "{user_question}"\n\nHãy trả lời dưới dạng JSON Array các câu."""
-
-            # 4. Gọi Gemini
             gemini_res = model.generate_content(prompt)
-            
-            # Xử lý sạch text để lấy JSON
             clean_text = gemini_res.text.replace('```json', '').replace('```', '').strip()
             
             try:
@@ -298,19 +264,8 @@ class WeatherChatbotView(APIView):
             except:
                 reply_list = [clean_text]
 
-            # Trả về List các câu + phân loại intent
-            return Response({
-                "reply": reply_list,
-                "intent": intent,
-                "weather_data": {
-                    "temperature": w_data.get('temperature_2m'),
-                    "weathercode": weather_code,
-                    "status": weather_desc_text,
-                    "windspeed": w_data.get('windspeed_10m'),
-                    "humidity": w_data.get('relative_humidity_2m'),
-                    "precipitation": w_data.get('precipitation')
-                }
-            }, status=status.HTTP_200_OK)
+            return Response({"reply": reply_list}, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
