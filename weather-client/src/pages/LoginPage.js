@@ -3,36 +3,54 @@ import React, { useContext } from 'react';
 import AuthContext from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 
-// --- CSS STYLES (Đồng bộ giao diện với HomePage) ---
 const styles = `
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; font-weight: 400; }
     
-    .auth-container {
+    .auth-wrapper {
         min-height: 100vh;
-        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); /* Nền giống HomePage */
+        width: 100%;
+        position: relative;
         display: flex;
         justify-content: center;
         align-items: center;
         padding: 20px;
+        background: transparent; 
+    }
+
+    .auth-overlay {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.4); 
+        z-index: 0;
     }
 
     .auth-card {
-        background: rgba(255, 255, 255, 0.1); /* Kính mờ */
-        padding: 40px;
-        border-radius: 20px;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        position: relative;
+        z-index: 1;
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+        padding: 50px 40px;
+        border-radius: 24px;
         width: 100%;
-        max-width: 400px;
+        max-width: 420px;
         text-align: center;
         color: #fff;
     }
 
     .auth-card h2 {
-        margin-bottom: 30px;
-        font-size: 28px;
+        margin-bottom: 10px;
+        font-size: 32px;
         font-weight: 600;
+        color: #fff;
+    }
+    
+    .sub-text {
+        font-size: 15px;
+        color: rgba(255, 255, 255, 0.8);
+        margin-bottom: 40px;
     }
 
     .form-group {
@@ -42,12 +60,12 @@ const styles = `
 
     .form-input {
         width: 100%;
-        padding: 12px 15px;
-        border-radius: 30px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        background: rgba(0, 0, 0, 0.2);
+        padding: 14px 20px;
+        border-radius: 50px;
+        background: rgba(0, 0, 0, 0.2); 
+        border: 1px solid rgba(255, 255, 255, 0.15);
         color: #fff;
-        font-size: 16px;
+        font-size: 15px;
         outline: none;
         transition: all 0.3s;
     }
@@ -57,45 +75,48 @@ const styles = `
     }
 
     .form-input:focus {
-        background: rgba(0, 0, 0, 0.4);
-        border-color: rgba(255, 255, 255, 0.5);
+        background: rgba(0, 0, 0, 0.3);
+        border-color: #3182ce;
+        box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.25);
     }
 
     .submit-btn {
         width: 100%;
-        padding: 12px;
-        border-radius: 30px;
+        padding: 14px;
+        border-radius: 50px;
         border: none;
-        background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%); /* Gradient xanh sáng */
+        background: #3182ce; 
         color: #fff;
         font-size: 16px;
-        font-weight: bold;
+        font-weight: 600;
         cursor: pointer;
-        transition: transform 0.2s, box-shadow 0.2s;
-        margin-top: 10px;
+        transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+        margin-top: 20px;
+        box-shadow: 0 4px 15px rgba(49, 130, 206, 0.4);
     }
 
     .submit-btn:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4);
+        background: #2b6cb0;
+        box-shadow: 0 6px 20px rgba(49, 130, 206, 0.6);
     }
 
     .auth-footer {
-        margin-top: 20px;
+        margin-top: 30px;
         font-size: 14px;
-        opacity: 0.8;
+        color: rgba(255, 255, 255, 0.7);
     }
 
     .auth-link {
-        color: #4facfe;
+        color: #63b3ed;
         text-decoration: none;
-        font-weight: bold;
+        font-weight: 600;
         margin-left: 5px;
     }
 
     .auth-link:hover {
         text-decoration: underline;
-        color: #00f2fe;
+        color: #90cdf4;
     }
 `;
 
@@ -103,18 +124,23 @@ const LoginPage = () => {
     let { loginUser } = useContext(AuthContext);
 
     return (
-        <div className="auth-container">
-            <style>{styles}</style> {/* Nhúng CSS vào đây */}
+        <div className="auth-wrapper">
+            <style>{styles}</style>
             
+            <div className="auth-overlay"></div>
+
             <div className="auth-card">
-                {/* Icon mây trời trang trí */}
-                <img 
-                    src="https://cdn-icons-png.flaticon.com/512/1163/1163661.png" 
-                    alt="logo" 
-                    width="60" 
-                    style={{marginBottom: '10px'}}
-                />
-                <h2>Log in</h2>
+                <div style={{ marginBottom: 20 }}>
+                    <img 
+                        src="https://cdn-icons-png.flaticon.com/512/1163/1163661.png" 
+                        alt="logo" 
+                        width="80" 
+                        style={{ filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.3))' }}
+                    />
+                </div>
+                
+                <h2>Welcome</h2>
+                <p className="sub-text">Sign in to continue tracking the weather</p>
                 
                 <form onSubmit={loginUser}>
                     <div className="form-group">
@@ -122,7 +148,7 @@ const LoginPage = () => {
                             className="form-input" 
                             type="text" 
                             name="username" 
-                            placeholder="Tên đăng nhập" 
+                            placeholder="Username" 
                             required 
                         />
                     </div>
@@ -131,17 +157,20 @@ const LoginPage = () => {
                             className="form-input" 
                             type="password" 
                             name="password" 
-                            placeholder="Mật khẩu" 
+                            placeholder="Password" 
                             required 
                         />
                     </div>
                     <button type="submit" className="submit-btn">
-                        Go to Dashboard ➔
+                        Log in
                     </button>
                 </form>
 
                 <div className="auth-footer">
-                    <p>Don't have an account? <Link to="/register" className="auth-link">Sign in</Link></p>
+                    <p>
+                        Don't have an account?
+                        <Link to="/register" className="auth-link">Register now</Link>
+                    </p>
                 </div>
             </div>
         </div>
