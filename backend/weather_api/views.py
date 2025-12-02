@@ -269,3 +269,62 @@ class WeatherChatbotView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# API User Profile
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .serializers import UserProfileSerializer
+        serializer = UserProfileSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def put(self, request):
+        from .serializers import UserProfileSerializer
+        serializer = UserProfileSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Cập nhật thành công", "data": serializer.data}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# API Change Password
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        from .serializers import ChangePasswordSerializer
+        from django.contrib.auth import update_session_auth_hash
+        
+        serializer = ChangePasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            user = request.user
+            
+            # Kiểm tra mật khẩu cũ
+            if not user.check_password(serializer.validated_data['old_password']):
+                return Response({"error": "Mật khẩu hiện tại không đúng"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Đổi mật khẩu
+            user.set_password(serializer.validated_data['new_password'])
+            user.save()
+            
+            return Response({"message": "Đổi mật khẩu thành công"}, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# API User Preferences
+class UserPreferencesView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .serializers import UserPreferencesSerializer
+        preferences, created = UserPreferences.objects.get_or_create(user=request.user)
+        serializer = UserPreferencesSerializer(preferences)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def put(self, request):
+        from .serializers import UserPreferencesSerializer
+        preferences, created = UserPreferences.objects.get_or_create(user=request.user)
+        serializer = UserPreferencesSerializer(preferences, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Cập nhật thành công", "data": serializer.data}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
