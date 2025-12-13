@@ -1,73 +1,93 @@
-// src/context/AuthContext.js
-import { createContext, useState, useEffect } from 'react';
-import { jwtDecode } from "jwt-decode";
-import { useNavigate } from 'react-router-dom';
+import React, { createContext, useState, useEffect } from 'react';
 import api from '../utils/api'; 
+import { useNavigate } from 'react-router-dom';
+import { jwtDecode } from "jwt-decode"; 
 
 const AuthContext = createContext();
 
-export default AuthContext;
-
 export const AuthProvider = ({ children }) => {
-    let [authTokens, setAuthTokens] = useState(() => 
-        localStorage.getItem('authTokens') ? JSON.parse(localStorage.getItem('authTokens')) : null
-    );
-    
-    let [user, setUser] = useState(() => 
-        localStorage.getItem('authTokens') ? jwtDecode(localStorage.getItem('authTokens')) : null
-    );
-
+    const [user, setUser] = useState(null);
+    const [authLoading, setAuthLoading] = useState(true);
     const navigate = useNavigate();
 
-    // login
-    let loginUser = async (e) => {
-        e.preventDefault();
+    // 1. Kiểm tra đăng nhập khi F5
+    useEffect(() => {
+        const checkLoggedIn = async () => {
+            const token = localStorage.getItem('authTokens');
+            if (token) {
+                try {
+                    const parsedToken = JSON.parse(token);
+                    const decoded = jwtDecode(parsedToken.access); 
+                    setUser(decoded); 
+                } catch (e) {
+                    logoutUser();
+                }
+            }
+            setAuthLoading(false);
+        };
+        checkLoggedIn();
+    }, []);
+
+    // 2. SỬA HÀM NÀY: Nhận 'e' (event) thay vì username/password rời
+    const loginUser = async (e) => {
+        e.preventDefault(); // Chặn reload form
+        
+        // Lấy dữ liệu trực tiếp từ form cũ của bạn (dựa vào name="username" và name="password")
+        const username = e.target.username.value;
+        const password = e.target.password.value;
+
         try {
-            //  API Login Django
-            let response = await api.post('login/', {
-                username: e.target.username.value,
-                password: e.target.password.value
+            // Gọi API
+            const response = await api.post('token/', { 
+                username, 
+                password 
             });
 
             if (response.status === 200) {
-                setAuthTokens(response.data);
-                setUser(jwtDecode(response.data.access));
                 localStorage.setItem('authTokens', JSON.stringify(response.data));
+                const decoded = jwtDecode(response.data.access);
+                setUser(decoded); 
+                
+                alert("Đăng nhập thành công!");
                 navigate('/'); 
             } else {
-                alert('Sai tài khoản hoặc mật khẩu!');
+                alert("Sai tài khoản hoặc mật khẩu!");
             }
         } catch (error) {
-            alert('Đăng nhập thất bại! Kiểm tra lại Backend.');
-            console.error(error);
+            console.error("Login Error:", error);
+            alert("Đăng nhập thất bại! Vui lòng kiểm tra lại.");
         }
     };
 
-    // log out
-    let logoutUser = () => {
-        setAuthTokens(null);
-        setUser(null);
+    // 3. register
+    const registerUser = async (e) => {
+        e.preventDefault();
+        const username = e.target.username.value;
+        const password = e.target.password.value;
+        const email = e.target.email.value;
+
+        try {
+            await api.post('register/', { username, password, email });
+            alert("Đăng ký thành công! Vui lòng đăng nhập.");
+            navigate('/login');
+        } catch (error) {
+            alert("Đăng ký thất bại. Tên đăng nhập có thể đã tồn tại.");
+        }
+    };
+
+    // 4. Hàm Đăng xuất
+    const logoutUser = () => {
         localStorage.removeItem('authTokens');
+        setUser(null);
         navigate('/login');
     };
 
-    // register
-    let registerUser = async (username, password, email) => {
-        try {
-            await api.post('register/', { username, password, email });
-            alert("Đăng ký thành công! Hãy đăng nhập.");
-            navigate('/login');
-        } catch (error) {
-            alert("Đăng ký thất bại (Có thể tên đã tồn tại)");
-        }
-    };
-
-    let contextData = {
-        user: user,
-        authTokens: authTokens,
-        loginUser: loginUser,
-        logoutUser: logoutUser,
-        registerUser: registerUser
+    const contextData = {
+        user,
+        loginUser,   
+        registerUser,
+        logoutUser,
+        authLoading
     };
 
     return (
@@ -76,3 +96,5 @@ export const AuthProvider = ({ children }) => {
         </AuthContext.Provider>
     );
 };
+
+export default AuthContext;
