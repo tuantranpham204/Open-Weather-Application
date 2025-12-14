@@ -19,7 +19,71 @@ WEATHER_API_URL = 'https://api.open-meteo.com/v1/forecast'
 GEOCODING_API_URL = 'https://geocoding-api.open-meteo.com/v1/search'
 AIR_QUALITY_API_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 
-# API Weather Data
+# 1. API SEARCH CITY (Enhanced with autocomplete support)
+class SearchCityView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    
+    def get(self, request, *args, **kwargs):
+        city = request.query_params.get('city', None)
+        if not city:
+            return Response({"error": "Need city name."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Autocomplete mode: trigger only if query length >= 2
+        autocomplete = request.query_params.get('autocomplete', 'false').lower() == 'true'
+        if autocomplete and len(city.strip()) < 2:
+            return Response({"suggestions": []}, status=status.HTTP_200_OK)
+        
+        # Determine result limit: 8 for autocomplete, 10 for full search
+        result_limit = 8 if autocomplete else 10
+        
+        geo_params = {'name': city, 'count': result_limit, 'language': 'vi', 'format': 'json'}
+        try:
+            geo_response = requests.get(GEOCODING_API_URL, params=geo_params, timeout=3)
+            geo_response.raise_for_status()
+            geo_data = geo_response.json()
+
+            if not geo_data.get('results'):
+                # Return different response format based on mode
+                if autocomplete:
+                    return Response({"query": city, "suggestions": []}, status=status.HTTP_200_OK)
+                return Response({"error": f"No result for'{city}'."}, status=status.HTTP_404_NOT_FOUND)
+            
+            locations = []
+            for res in geo_data['results']:
+                location_data = {
+                    'id': res['id'],
+                    'name': res.get('name', 'Unknown name'),
+                    'country': res.get('country', ''),
+                    'admin1': res.get('admin1', ''),
+                    'latitude': res['latitude'],
+                    'longitude': res['longitude'],
+                }
+                
+                # Add autocomplete-specific fields
+                if autocomplete:
+                    location_data['type'] = 'city'
+                    location_data['value'] = res.get('name', 'Unknown name')
+                    # Calculate simple relevance score (prefix match boost)
+                    query_lower = city.lower()
+                    name_lower = location_data['name'].lower()
+                    location_data['score'] = 100 if name_lower.startswith(query_lower) else 50
+                
+                locations.append(location_data)
+            
+            # Sort by score for autocomplete
+            if autocomplete:
+                locations.sort(key=lambda x: x['score'], reverse=True)
+                return Response({"query": city, "suggestions": locations}, status=status.HTTP_200_OK)
+            
+            return Response(locations, status=status.HTTP_200_OK)
+
+        except requests.exceptions.Timeout:
+            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except Exception as e:
+            return Response({"error": f"Lỗi server: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# 2. API WEATHER (CẬP NHẬT: GIỮ NGUYÊN STRUCUTRE CŨ + LOGIC MỚI)
 class WeatherDataView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -73,7 +137,7 @@ class WeatherDataView(APIView):
             ],
         }
 
-   
+    # --- LOGIC AQI (NÊN BẮT LỖI RIÊNG ĐỂ KHÔNG CHẾT APP) ---
     def get_air_quality(self, lat, lon):
         try:
             params = {
@@ -328,3 +392,45 @@ class UserPreferencesView(APIView):
             serializer.save()
             return Response({"message": "Cập nhật thành công", "data": serializer.data}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+# --- PHẦN CHÈN THÊM VÀO CUỐI FILE VIEWS.PY ---
+
+from django.db.models import F, FloatField, ExpressionWrapper
+from .models import ClimateNormal
+from .serializers import ClimateNormalSerializer
+from rest_framework.decorators import api_view, permission_classes
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def climate_data(request): 
+    try:
+        # 1. Lấy tọa độ mục tiêu (mặc định Hà Nội nếu không có)
+        try:
+            target_lat = float(request.GET.get('lat', 21.02))
+            target_lon = float(request.GET.get('lon', 105.83))
+        except (ValueError, TypeError):
+            target_lat, target_lon = 21.02, 105.83
+
+        # 2. Thuật toán tìm trạm khí hậu gần nhất trong Database dùng Pitago
+        # Giải quyết vấn đề tọa độ search không khớp 100% với tọa độ DB
+        closest_station = ClimateNormal.objects.annotate(
+            distance_pow2=ExpressionWrapper(
+                (F('lat') - target_lat) ** 2 + (F('lon') - target_lon) ** 2,
+                output_field=FloatField()
+            )
+        ).order_by('distance_pow2').first()
+
+        if not closest_station:
+            return Response([], status=status.HTTP_200_OK)
+
+        # 3. Lấy dữ liệu 365 ngày của trạm gần nhất đó
+        data = ClimateNormal.objects.filter(
+            lat=closest_station.lat,
+            lon=closest_station.lon
+        ).order_by('month', 'day')
+
+        serializer = ClimateNormalSerializer(data, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        # Trả về lỗi 500 nếu code crash để dễ debug
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
