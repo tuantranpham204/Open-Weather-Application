@@ -290,35 +290,163 @@ class FavoriteLocationDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         return FavoriteLocation.objects.filter(user=self.request.user)
 
+# 6. API chatbot
 class WeatherChatbotView(APIView):
     permission_classes = [AllowAny]
+    
+    def classify_intent(self, question):
+        """
+        Classify user intent
+        Returns: 'greeting', 'weather', 'outfit', 'activity', 'other'
+        """
+        question_lower = question.lower()
+        
+        # Greeting keywords
+        greeting_keywords = ['hello', 'hi', 'hey', 'good morning', 'good evening', 'how are you']
+        if any(kw in question_lower for kw in greeting_keywords):
+            return 'greeting'
+        
+        # Weather keywords
+        weather_keywords = [
+            'weather', 'temperature', 'rain', 'sunny', 'hot', 'cold',
+            'wind', 'humidity', 'pressure', 'cloud', 'fog',
+            'how is', 'what like', 'condition', 'sky'
+        ]
+        if any(kw in question_lower for kw in weather_keywords):
+            return 'weather'
+        
+        # Outfit / clothing keywords
+        outfit_keywords = [
+            'what to wear', 'wear', 'clothes', 'shirt', 'pants',
+            'shoes', 'outfit', 'dress', 'clothing'
+        ]
+        if any(kw in question_lower for kw in outfit_keywords):
+            return 'outfit'
+        
+        # Activity / outdoor keywords
+        activity_keywords = [
+            'what to do', 'should do', 'activity', 'play', 'go',
+            'can i', 'is it ok', 'good idea', 'suitable',
+            'outdoor', 'outside'
+        ]
+        if any(kw in question_lower for kw in activity_keywords):
+            return 'activity'
+        
+        return 'other'
+    
     def post(self, request, *args, **kwargs):
         lat = request.data.get('lat')
         lon = request.data.get('lon')
-        city_name = request.data.get('city', 'khu vực này')
+        city_name = request.data.get('city', 'this area')
         user_question = request.data.get('question')
 
         if not lat or not lon:
-            return Response({"error": "Thiếu toạ độ"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Missing coordinates"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            weather_params = {'latitude': lat, 'longitude': lon, 'current': 'temperature_2m,weathercode,windspeed_10m,precipitation'}
+            # 1. Call weather API
+            weather_params = {
+                'latitude': lat, 
+                'longitude': lon, 
+                'current': 'temperature_2m,weathercode,windspeed_10m,winddirection_10m,precipitation,relative_humidity_2m,pressure_msl',
+                'daily': 'temperature_2m_max,temperature_2m_min,weathercode'
+            }
             res = requests.get('https://api.open-meteo.com/v1/forecast', params=weather_params)
             w_data = res.json().get('current', {})
+            daily_data = res.json().get('daily', {})
             
-            weather_desc = f"Vị trí: {city_name}, Nhiệt độ: {w_data.get('temperature_2m')}°C, WMO: {w_data.get('weathercode')}, Gió: {w_data.get('windspeed_10m')}km/h"
-
-            system_instruction = f"""
-            Bạn là trợ lý thời tiết thân thiện. Dữ liệu: {weather_desc}.
-            YÊU CẦU: Trả lời ngắn gọn, Bằng tiếng anh.format JSON Array. Ví dụ: ["Câu 1", "Câu 2"].
+            # WMO weather code explanation
+            weather_codes = {
+                0: 'Clear sky', 1: 'Mostly clear', 2: 'Partly cloudy', 3: 'Cloudy',
+                45: 'Fog', 48: 'Freezing fog',
+                51: 'Light drizzle', 53: 'Drizzle', 55: 'Dense drizzle',
+                61: 'Moderate rain', 63: 'Heavy rain', 65: 'Very heavy rain',
+                71: 'Light snow', 73: 'Snow', 75: 'Heavy snow',
+                80: 'Rain showers', 81: 'Heavy rain showers', 82: 'Violent rain showers',
+                95: 'Thunderstorm with hail', 96: 'Thunderstorm with hail', 99: 'Thunderstorm with hail'
+            }
+            
+            weather_code = w_data.get('weathercode', 3)
+            weather_desc_text = weather_codes.get(weather_code, 'Unknown')
+            
+            weather_desc = f"""
+            Location: {city_name}
+            Temperature: {w_data.get('temperature_2m')}°C
+            Condition: {weather_desc_text} (code: {weather_code})
+            Wind: {w_data.get('windspeed_10m')} km/h, direction {w_data.get('winddirection_10m')}°
+            Humidity: {w_data.get('relative_humidity_2m')}%
+            Precipitation: {w_data.get('precipitation')} mm
+            Pressure: {w_data.get('pressure_msl')} hPa
+            Today forecast: min {daily_data.get('temperature_2m_min', [0])[0]}°C, max {daily_data.get('temperature_2m_max', [0])[0]}°C
             """
 
-            if user_question:
-                prompt = f"""{system_instruction} \n Người dùng hỏi: "{user_question}" Bằng tiếng anh.."""
-            else:
-                prompt = f"""{system_instruction} \n Đưa ra lời khuyên ngay lúc này. Bằng tiếng anh."""
+            # 2. Intent classification
+            intent = self.classify_intent(user_question) if user_question else 'other'
 
+            # 3. Create prompt based on intent
+            if intent == 'greeting':
+                system_instruction = f"""
+            You are a friendly weather assistant. Weather data: {weather_desc}
+
+            TASK: The user is greeting you.
+            - Reply politely and briefly.
+            - Suggest weather or outfit information.
+            - Return a JSON Array of sentences.
+            Example: ["Hello! 👋", "The weather looks pleasant today 🌤️", "How can I help you?"]
+                """
+            elif intent == 'weather':
+                system_instruction = f"""
+            You are a professional weather assistant. Data: {weather_desc}
+
+            TASK: The user is asking about the weather.
+            - Answer clearly and in detail, using emojis.
+            - Explain current conditions and forecast.
+            - Return a JSON Array.
+            Example: ["Currently in {city_name}, the weather is quite pleasant 🌤️", "Temperature is around 25°C with light wind", "No rain is expected today"]
+                """
+            elif intent == 'outfit':
+                system_instruction = f"""
+            You are a weather-based stylist. Data: {weather_desc}
+
+            TASK: Suggest outfits based on the weather.
+            - Keep it concise but informative.
+            - Recommend clothing items and accessories.
+            - Explain why (temperature, humidity, rain).
+            - Return a JSON Array.
+            Example: ["With a temperature of 25°C, a light shirt or T-shirt would be great 👕", "Linen pants or shorts will keep you comfortable", "Sneakers or breathable sandals are good choices 👟"]
+                """
+            elif intent == 'activity':
+                system_instruction = f"""
+            You are an outdoor activity advisor. Data: {weather_desc}
+
+            TASK: Suggest activities suitable for the weather.
+            - Recommend outdoor activities.
+            - Give warnings if needed (sun, rain, strong wind).
+            - Return a JSON Array.
+            Example: ["The weather is great for a walk in the park 🚶", "Outdoor sports or a picnic would be perfect", "Remember to stay hydrated and use sunscreen ☀️"]
+                """
+            else:  # other
+                system_instruction = f"""
+            You are a weather assistant. Data: {weather_desc}
+
+            TASK: The user asked something unrelated.
+            - Politely say you specialize in weather.
+            - Suggest what you can help with.
+            - Return a JSON Array.
+            Example: ["I'm a weather assistant 🌤️", "I'm not sure about that topic, but I can help with weather information!", "Would you like to know the weather or outfit suggestions?"]
+                """
+
+            prompt = f"""{system_instruction}
+
+Intent: {intent}
+Question: "{user_question}"
+
+Please answer in JSON Array format."""
+
+            # 4. Call Gemini
             gemini_res = model.generate_content(prompt)
+            
+            # Clean response to extract JSON
             clean_text = gemini_res.text.replace('```json', '').replace('```', '').strip()
             
             try:
@@ -326,10 +454,23 @@ class WeatherChatbotView(APIView):
             except:
                 reply_list = [clean_text]
 
-            return Response({"reply": reply_list}, status=status.HTTP_200_OK)
+            # Return response
+            return Response({
+                "reply": reply_list,
+                "intent": intent,
+                "weather_data": {
+                    "temperature": w_data.get('temperature_2m'),
+                    "weathercode": weather_code,
+                    "status": weather_desc_text,
+                    "windspeed": w_data.get('windspeed_10m'),
+                    "humidity": w_data.get('relative_humidity_2m'),
+                    "precipitation": w_data.get('precipitation')
+                }
+            }, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 # API User Profile
 class UserProfileView(APIView):
