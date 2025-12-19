@@ -58,7 +58,7 @@ const TodayWeather = () => {
         dewpoint: Number(h.dewpoint_2m || h.dewpoint), pressure: Number(h.pressure_msl || h.pressure)
     }));
 
-    // Debug: Kiểm tra dữ liệu
+    // Debug: check data
     console.log('Sample hourly data:', hourly[0]);
     console.log('Chart data sample:', chartData[0]);
 
@@ -92,11 +92,10 @@ const TodayWeather = () => {
                     </div>
                 )}
 
-                {/* BỐ CỤC CHÍNH */}
+                {/* Main layout */}
                 <div className="main-grid-layout">
                     <div className="weather-info-panel">
                         <div className="panel-header">
-                            {/* BÊN TRÁI: TÊN VÀ NÚT DỰ BÁO */}
                             <div className="location-info">
                                 <div className="location-name-row">
                                     <MapPin size={24} color="#3182ce" />

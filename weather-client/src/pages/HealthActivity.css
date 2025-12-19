@@ -1,0 +1,99 @@
+/* ===== CONTAINER ===== */
+.health-container {
+  padding: 24px 32px;
+}
+
+/* ===== TITLE ===== */
+.health-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 28px 0 16px;
+  color: #f9fafb; 
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* ===== GRID ===== */
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+/* ===== CARD ===== */
+.health-card {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 14px;
+  padding: 18px 20px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.health-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+/* ===== HEADER ===== */
+.health-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+
+.health-icon {
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+}
+
+/* LABEL */
+.health-label {
+  font-size: 16px;
+  font-weight: 500;
+  color: #111827;
+}
+
+/* ===== STATUS LINE ===== */
+.status-line {
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  margin: 10px 0 8px;
+}
+
+/* ===== STATUS TEXT ===== */
+.health-status {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ===== LOADING ===== */
+.health-loading {
+  padding: 40px;
+  text-align: center;
+  font-size: 16px;
+  color: #e5e7eb;
+}
+/* ===== INDEX PROGRESS ===== */
+.index-progress {
+  margin-top: 12px;
+}
+
+.index-bar {
+  width: 100%;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.index-fill {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.index-text {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}

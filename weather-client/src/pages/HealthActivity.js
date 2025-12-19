@@ -10,7 +10,7 @@ export default function HealthActivity() {
 
   const { health_activity, air_quality, current } = weatherData;
 
-  // 2. UV STATUS CALCULATION (English)
+  // 2. UV STATUS CALCULATION 
   const getUVState = (uv) => {
     if (uv === null || uv === undefined) return { status: "N/A", color: "#ccc" };
     if (uv <= 2) return { status: "Low", color: "#22c55e" };        // Green
@@ -23,7 +23,6 @@ export default function HealthActivity() {
   const uvState = getUVState(current?.uv_index);
 
   // 3. MAP TRANSLATIONS FOR API DATA
-  // Hàm này để dịch các trạng thái từ Backend (như "Cao", "Tốt"...) sang tiếng Anh
   const translateStatus = (status) => {
     const dict = {
       "Cao": "High",

@@ -83,12 +83,12 @@ class SearchCityView(APIView):
         except Exception as e:
             return Response({"error": f"Lỗi server: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# 2. API WEATHER (CẬP NHẬT: GIỮ NGUYÊN STRUCUTRE CŨ + LOGIC MỚI)
+# 2. API WEATHER Health Activity
 class WeatherDataView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    # --- LOGIC TÍNH TOÁN SỨC KHỎE (GIỮ NGUYÊN CỦA FILE MỚI) ---
+    # --- LOGIC health
     def analyze_health_activity(self, current):
         temp = current.get("temperature_2m", 0)
         humidity = current.get("relative_humidity_2m", 0)
@@ -137,7 +137,7 @@ class WeatherDataView(APIView):
             ],
         }
 
-    # --- LOGIC AQI (NÊN BẮT LỖI RIÊNG ĐỂ KHÔNG CHẾT APP) ---
+    # --- LOGIC AQI 
     def get_air_quality(self, lat, lon):
         try:
             params = {
@@ -146,7 +146,7 @@ class WeatherDataView(APIView):
                 "current": "us_aqi,pm2_5",
                 "timezone": "auto",
             }
-            res = requests.get(AIR_QUALITY_API_URL, params=params, timeout=5) # Thêm timeout
+            res = requests.get(AIR_QUALITY_API_URL, params=params, timeout=5) 
             res.raise_for_status()
             current = res.json().get("current", {})
 
@@ -154,12 +154,12 @@ class WeatherDataView(APIView):
             pm25 = current.get("pm2_5", 0)
 
             def map_us_aqi(v):
-                if v <= 50: return "Tốt", "#22c55e"                 # Xanh lá
-                if v <= 100: return "Trung bình", "#eab308"         # Vàng
-                if v <= 150: return "Kém cho nhóm nhạy cảm", "#ff7e00" # Cam
-                if v <= 200: return "Xấu", "#ff0000"                # Đỏ
-                if v <= 300: return "Rất xấu", "#8f3f97"            # Tím
-                return "Nguy hại", "#7e0023"                        # Nâu đỏ (Maroon)
+                if v <= 50: return "Tốt", "#22c55e"               
+                if v <= 100: return "Trung bình", "#eab308"         
+                if v <= 150: return "Kém cho nhóm nhạy cảm", "#ff7e00" 
+                if v <= 200: return "Xấu", "#ff0000"                
+                if v <= 300: return "Rất xấu", "#8f3f97"          
+                return "Nguy hại", "#7e0023"                        
 
             # PM2.5 theo chuẩn EPA (µg/m³)
             def map_pm25_epa(v):
@@ -178,7 +178,6 @@ class WeatherDataView(APIView):
                 "pm25": {"value": pm25, "status": pm_status, "color": pm_color, "percent": min(int(pm25 / 200 * 100), 100)},
             }
         except Exception:
-            # Nếu lỗi lấy không khí, trả về mặc định để app không chết
             return {"aqi": {"value": 0, "status": "N/A", "color": "#ccc", "percent": 0}, "pm25": {"value": 0, "status": "N/A", "color": "#ccc", "percent": 0}}
 
     # --- GET DATA ---
@@ -206,7 +205,7 @@ class WeatherDataView(APIView):
             daily = data.get("daily", {})
             hourly = data.get("hourly", {})
 
-            # 1. Xử lý Daily (Dùng .get để an toàn)
+            # 1. process Daily 
             forecast_list = []
             if "time" in daily:
                 for i in range(len(daily["time"])):
@@ -221,17 +220,16 @@ class WeatherDataView(APIView):
                         "uv_index_max": daily.get("uv_index_max", [])[i] if "uv_index_max" in daily else 0,
                     })
 
-            # 2. Xử lý Hourly (QUAN TRỌNG: Khôi phục logic cắt chuỗi thời gian)
+            # 2. process Hourly 
             hourly_list = []
             if "time" in hourly:
                 for i in range(len(hourly["time"])):
                     full_time = hourly["time"][i]
-                    # SỬA LẠI: Tách giờ như file cũ để Frontend không bị lỗi
                     time_str = full_time.split('T')[1] if 'T' in full_time else full_time
                     
                     hourly_list.append({
-                        "full_time": full_time, # Thêm lại key này cho chắc
-                        "time": time_str,       # Trả về giờ dạng ngắn (VD: 14:00)
+                        "full_time": full_time, 
+                        "time": time_str,      
                         "temp": hourly.get("temperature_2m", [])[i],
                         "weathercode": hourly.get("weathercode", [])[i],
                         "rain": hourly.get("precipitation", [])[i],
@@ -248,7 +246,7 @@ class WeatherDataView(APIView):
                     "precipitation": current.get("precipitation"),
                     "weathercode": current.get("weathercode"),
                     "windspeed": current.get("windspeed_10m"),
-                    "winddirection": current.get("winddirection_10m"), # Đảm bảo field này có
+                    "winddirection": current.get("winddirection_10m"), 
                     "pressure": current.get("pressure_msl"),
                     "uv_index": current.get("uv_index"),
                     "visibility": current.get("visibility"),
@@ -257,7 +255,7 @@ class WeatherDataView(APIView):
                     "apparent_temperature": current.get("apparent_temperature"),
                 },
                 "health_activity": self.analyze_health_activity(current),
-                "air_quality": self.get_air_quality(lat, lon), # Đã bọc try-except
+                "air_quality": self.get_air_quality(lat, lon), 
                 "forecast": forecast_list,
                 "hourly": hourly_list,
                 "daily": daily,
@@ -268,7 +266,7 @@ class WeatherDataView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-# Các API còn lại giữ nguyên
+# register
 class RegisterView(APIView):
     permission_classes = [AllowAny]
     def post(self, request, *args, **kwargs):
@@ -392,7 +390,7 @@ class UserPreferencesView(APIView):
             serializer.save()
             return Response({"message": "Cập nhật thành công", "data": serializer.data}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-# --- PHẦN CHÈN THÊM VÀO CUỐI FILE VIEWS.PY ---
+# Climate history
 
 from django.db.models import F, FloatField, ExpressionWrapper
 from .models import ClimateNormal
@@ -403,15 +401,14 @@ from rest_framework.decorators import api_view, permission_classes
 @permission_classes([AllowAny])
 def climate_data(request): 
     try:
-        # 1. Lấy tọa độ mục tiêu (mặc định Hà Nội nếu không có)
+        # 1. get location
         try:
             target_lat = float(request.GET.get('lat', 21.02))
             target_lon = float(request.GET.get('lon', 105.83))
         except (ValueError, TypeError):
             target_lat, target_lon = 21.02, 105.83
 
-        # 2. Thuật toán tìm trạm khí hậu gần nhất trong Database dùng Pitago
-        # Giải quyết vấn đề tọa độ search không khớp 100% với tọa độ DB
+        # 2. get nearest location
         closest_station = ClimateNormal.objects.annotate(
             distance_pow2=ExpressionWrapper(
                 (F('lat') - target_lat) ** 2 + (F('lon') - target_lon) ** 2,
@@ -422,7 +419,7 @@ def climate_data(request):
         if not closest_station:
             return Response([], status=status.HTTP_200_OK)
 
-        # 3. Lấy dữ liệu 365 ngày của trạm gần nhất đó
+        # 3. get data
         data = ClimateNormal.objects.filter(
             lat=closest_station.lat,
             lon=closest_station.lon
@@ -432,5 +429,4 @@ def climate_data(request):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     except Exception as e:
-        # Trả về lỗi 500 nếu code crash để dễ debug
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
