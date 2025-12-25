@@ -11,6 +11,14 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env file from BASE_DIR
+load_dotenv(BASE_DIR / '.env')
 
 # Use PyMySQL as MySQL adapter
 import pymysql
@@ -19,8 +27,7 @@ pymysql.install_as_MySQLdb()
 # Bypass version check for Django 5.x compatibility
 pymysql.version_info = (2, 2, 1, "final", 0)
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+
 
 
 # Quick-start development settings - unsuitable for production
@@ -87,11 +94,11 @@ WSGI_APPLICATION = 'weather_project.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql', 
-        'NAME': 'weather_db',          
-        'USER': 'root',             
-        'PASSWORD': '123456',   
-        'HOST': '127.0.0.1',
-        'PORT': '3306',
+        'NAME': os.getenv('DB_NAME', 'weather_db'),          
+        'USER': os.getenv('DB_USER', 'root'),             
+        'PASSWORD': os.getenv('DB_PASSWORD', '123456'),   
+        'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+        'PORT': os.getenv('DB_PORT', '3306'),
     }
 }
 
@@ -145,6 +152,18 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     )
+}
+
+# Cache Settings
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "IGNORE_EXCEPTIONS": True,
+        }
+    }
 }
 
 # Configure Simple JWT

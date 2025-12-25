@@ -1,6 +1,6 @@
 import requests
 import json
-import google.generativeai as genai
+from google import genai
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics
@@ -8,11 +8,11 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import FavoriteLocation, UserPreferences
 from .serializers import FavoriteLocationSerializer, RegisterSerializer
 from datetime import datetime
+from django.core.cache import cache
 
 # API Gemini
 GEMINI_API_KEY = "AIzaSyBVT-pd7L6MREQWsWyJfy92OdtIB00C9uw"
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # URL API Open-Meteo
 WEATHER_API_URL = 'https://api.open-meteo.com/v1/forecast'
@@ -37,8 +37,14 @@ class SearchCityView(APIView):
         # Determine result limit: 8 for autocomplete, 10 for full search
         result_limit = 8 if autocomplete else 10
         
-        geo_params = {'name': city, 'count': result_limit, 'language': 'vi', 'format': 'json'}
         try:
+            # Try to get from cache
+            cache_key = f"city_search_{city}_{autocomplete}"
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                return Response(cached_data, status=status.HTTP_200_OK)
+
+            geo_params = {'name': city, 'count': result_limit, 'language': 'vi', 'format': 'json'}
             geo_response = requests.get(GEOCODING_API_URL, params=geo_params, timeout=3)
             geo_response.raise_for_status()
             geo_data = geo_response.json()
@@ -74,9 +80,13 @@ class SearchCityView(APIView):
             # Sort by score for autocomplete
             if autocomplete:
                 locations.sort(key=lambda x: x['score'], reverse=True)
-                return Response({"query": city, "suggestions": locations}, status=status.HTTP_200_OK)
+                response_data = {"query": city, "suggestions": locations}
+            else:
+                response_data = locations
             
-            return Response(locations, status=status.HTTP_200_OK)
+            # Cache for 24 hours
+            cache.set(cache_key, response_data, 86400)
+            return Response(response_data, status=status.HTTP_200_OK)
 
         except requests.exceptions.Timeout:
             return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
@@ -182,13 +192,18 @@ class WeatherDataView(APIView):
 
     # --- GET DATA ---
     def get(self, request):
-        lat = request.query_params.get("lat")
-        lon = request.query_params.get("lon")
-
-        if not lat or not lon:
-            return Response({"error": "lat & lon required"}, status=400)
-
         try:
+            lat = request.query_params.get("lat")
+            lon = request.query_params.get("lon")
+
+            if not lat or not lon:
+                return Response({"error": "lat & lon required"}, status=400)
+
+            cache_key = f"weather_data_{lat}_{lon}"
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                return Response(cached_data, status=status.HTTP_200_OK)
+
             weather_params = {
                 "latitude": lat,
                 "longitude": lon,
@@ -262,6 +277,8 @@ class WeatherDataView(APIView):
                 "units": data.get("current_units", {}),
             }
 
+            # Cache for 15 minutes
+            cache.set(cache_key, weather_data, 900)
             return Response(weather_data, status=status.HTTP_200_OK)
 
         except Exception as e:
@@ -454,7 +471,10 @@ class WeatherChatbotView(APIView):
             full_prompt = f"{system_instruction}\n\nUser Question: \"{user_question}\""
 
             # 4. Gọi Gemini
-            gemini_res = model.generate_content(full_prompt)
+            gemini_res = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=full_prompt
+            )
             clean_text = gemini_res.text.replace('```json', '').replace('```', '').strip()
             
             try:
@@ -557,6 +577,11 @@ def climate_data(request):
         except (ValueError, TypeError):
             target_lat, target_lon = 21.02, 105.83
 
+        cache_key = f"climate_data_{target_lat}_{target_lon}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data, status=status.HTTP_200_OK)
+
         # 2. get nearest location
         closest_station = ClimateNormal.objects.annotate(
             distance_pow2=ExpressionWrapper(
@@ -575,6 +600,8 @@ def climate_data(request):
         ).order_by('month', 'day')
 
         serializer = ClimateNormalSerializer(data, many=True)
+        # Cache for 24 hours
+        cache.set(cache_key, serializer.data, 86400)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     except Exception as e:

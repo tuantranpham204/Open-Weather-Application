@@ -11,14 +11,14 @@ const TopHeader = () => {
     const { preferences, updatePreferences, t } = useContext(PreferencesContext);
     const authContext = useContext(AuthContext);
     const user = authContext ? authContext.user : null;
-    const logoutUser = authContext ? authContext.logoutUser : () => {};
+    const logoutUser = authContext ? authContext.logoutUser : () => { };
 
     // Autocomplete state
     const [suggestions, setSuggestions] = useState([]);
     const [showDropdown, setShowDropdown] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
-    
+
     // Refs
     const searchRef = useRef(null);
     const debounceTimer = useRef(null);
@@ -133,8 +133,8 @@ const TopHeader = () => {
         if (!query) return text;
         const regex = new RegExp(`(${query})`, 'gi');
         const parts = text.split(regex);
-        return parts.map((part, i) => 
-            regex.test(part) ? <strong key={i} style={{fontWeight: 700}}>{part}</strong> : part
+        return parts.map((part, i) =>
+            regex.test(part) ? <strong key={i} style={{ fontWeight: 700 }}>{part}</strong> : part
         );
     };
 
@@ -144,10 +144,10 @@ const TopHeader = () => {
             <div className="header-search-container" ref={searchRef}>
                 <form className="header-search-bar" onSubmit={handleSearch}>
                     <Search className="search-icon" size={20} />
-                    <input 
-                        type="text" 
-                        placeholder={t('header.search')} 
-                        value={citySearch} 
+                    <input
+                        type="text"
+                        placeholder={t('header.search')}
+                        value={citySearch}
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         disabled={loading}
@@ -167,7 +167,7 @@ const TopHeader = () => {
 
                 {/* Suggestions dropdown */}
                 {showDropdown && suggestions.length > 0 && (
-                    <ul 
+                    <ul
                         className="autocomplete-dropdown"
                         role="listbox"
                         id="search-suggestions"
@@ -200,7 +200,7 @@ const TopHeader = () => {
             {/* Auth section */}
             <div className="header-auth">
                 {/* Language Toggle */}
-                <button 
+                <button
                     className="temp-unit-toggle"
                     onClick={() => {
                         const newLang = preferences.language === 'vi' ? 'en' : 'vi';
@@ -212,12 +212,12 @@ const TopHeader = () => {
                     }}
                     title={`${t('header.currentLanguage')}: ${preferences.language === 'vi' ? 'Tiếng Việt' : 'English'}. Click ${t('common.toSwitch')}`}
                 >
-                    <span style={{fontSize: '14px', fontWeight: 600}}>{preferences.language === 'vi' ? '🇻🇳' : '🇬🇧'}</span>
+                    <span style={{ fontSize: '14px', fontWeight: 600 }}>{preferences.language === 'vi' ? '🇻🇳' : '🇬🇧'}</span>
                     <span>{preferences.language.toUpperCase()}</span>
                 </button>
 
                 {/* Temperature Unit Toggle */}
-                <button 
+                <button
                     className="temp-unit-toggle"
                     onClick={() => {
                         const newUnit = preferences.temperature_unit === 'C' ? 'F' : 'C';
@@ -234,10 +234,14 @@ const TopHeader = () => {
                 </button>
 
                 {user ? (
-                    <div className="user-info">
-                        <span className="user-name"><User size={18}/> {user.username}</span>
+                    <div className="user-group">
+                        <div className="user-info-pill">
+                            <User size={18} />
+                            <span className="user-name">{user.username}</span>
+                        </div>
                         <button onClick={logoutUser} className="btn-auth logout">
-                            <LogOut size={18} /> {t('header.logout')}
+                            <LogOut size={18} />
+                            <span>{t('header.logout')}</span>
                         </button>
                     </div>
                 ) : (

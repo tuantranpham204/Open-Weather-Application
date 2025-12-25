@@ -1,0 +1,6 @@
+server_log.txt
+.idea
+.venv
+__pycache__
+world_climate_data_full.json
+.env
